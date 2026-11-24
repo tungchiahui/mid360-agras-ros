@@ -7,6 +7,8 @@
 - `common/` 是 ROS1 和 ROS2 共用的 UDP 和协议实现。
 - `ros1/` 是保留的 ROS1 功能包。内有 `COLCON_IGNORE`，避免 ROS2 构建时出现同名包。
 
+上游项目为 [xiaobai0818/mid360-agras-ros（Gitee）](https://gitee.com/xiaobai0818/mid360-agras-ros.git)。
+
 原作者的 [中文 README](src/mid360-agras-ros/mid360_agras_driver/README.md) 和 [英文 README](src/mid360-agras-ros/mid360_agras_driver/README.en.md) 按原文保存在驱动包内。其中的目录和启动默认值对应原版本。
 
 ## 构建
