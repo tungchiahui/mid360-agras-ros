@@ -1,0 +1,25 @@
+<launch>
+  <arg name="lidar_ip" default="192.168.1.10"/>
+  <arg name="host_ip" default="192.168.1.20"/>
+  <arg name="fov_start" default="0"/>
+  <arg name="fov_stop" default="360"/>
+  <arg name="publish_freq" default="10.0"/>
+  <arg name="frame_id" default="livox_frame"/>
+  <arg name="auto_sampling" default="true"/>
+  <arg name="configure_dest" default="false"/>
+  <arg name="max_range" default="80.0"/>
+
+  <include file="$(find mid360_agras_driver)/launch/mid360.launch">
+    <arg name="lidar_ip" value="$(arg lidar_ip)"/>
+    <arg name="host_ip" value="$(arg host_ip)"/>
+    <arg name="fov_start" value="$(arg fov_start)"/>
+    <arg name="fov_stop" value="$(arg fov_stop)"/>
+    <arg name="xfer_format" value="0"/>
+    <arg name="rviz" value="true"/>
+    <arg name="publish_freq" value="$(arg publish_freq)"/>
+    <arg name="frame_id" value="$(arg frame_id)"/>
+    <arg name="auto_sampling" value="$(arg auto_sampling)"/>
+    <arg name="configure_dest" value="$(arg configure_dest)"/>
+    <arg name="max_range" value="$(arg max_range)"/>
+  </include>
+</launch>

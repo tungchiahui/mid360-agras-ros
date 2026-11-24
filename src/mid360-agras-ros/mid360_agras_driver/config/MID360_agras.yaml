@@ -1,0 +1,31 @@
+/**:
+  ros__parameters:
+    lidar_ip: "192.168.1.10"
+    host_ip: "192.168.1.20"
+    cmd_port: 60000
+    point_port: 60001
+    imu_port: 60003
+    discover_port: 50000
+    discover_sec: 1.0
+
+    # 0 和 360 表示全周，只把雷达 ROI 使能写成 0。
+    # 其它整数角度写入雷达窗口。结束角小于起始角时，窗口跨过 0°。
+    fov_start: 0
+    fov_stop: 360
+
+    # 点云格式由 launch 入口选择，也可显式传入 xfer_format。
+    publish_freq: 20.0
+    frame_id: "agras_mid360"
+    custom_msg_type: "agras"
+    topic_prefix: "/agras"
+    lidar_topic: "livox/lidar"
+    imu_topic: "livox/imu"
+
+    auto_sampling: true
+    standby_on_exit: true
+    # 默认不改点云/IMU 目的地址。雷达已经往 UDP 60001 / 60003 发包。
+    configure_dest: false
+    publish_fill: false
+    # 这台雷达 80 m 以外的回波不可用，大约 200 m 的点是无效值。0 表示不裁剪。
+    max_range: 80.0
+    line_num: 4

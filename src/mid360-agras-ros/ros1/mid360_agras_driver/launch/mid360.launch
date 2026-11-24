@@ -1,0 +1,30 @@
+<launch>
+  <arg name="lidar_ip" default="192.168.1.10"/>
+  <arg name="host_ip" default="192.168.1.20"/>
+  <arg name="fov_start" default="0"/>
+  <arg name="fov_stop" default="360"/>
+  <arg name="xfer_format" default="0"/>
+  <arg name="publish_freq" default="10.0"/>
+  <arg name="frame_id" default="livox_frame"/>
+  <arg name="rviz" default="true"/>
+  <arg name="auto_sampling" default="true"/>
+  <arg name="configure_dest" default="false"/>
+  <arg name="max_range" default="80.0"/>
+
+  <node pkg="mid360_agras_driver" type="mid360_agras_driver_node" name="mid360_agras_driver" output="screen">
+    <rosparam command="load" file="$(find mid360_agras_driver)/config/MID360_agras.yaml"/>
+    <param name="lidar_ip" value="$(arg lidar_ip)"/>
+    <param name="host_ip" value="$(arg host_ip)"/>
+    <param name="fov_start" type="int" value="$(arg fov_start)"/>
+    <param name="fov_stop" type="int" value="$(arg fov_stop)"/>
+    <param name="xfer_format" type="int" value="$(arg xfer_format)"/>
+    <param name="publish_freq" type="double" value="$(arg publish_freq)"/>
+    <param name="frame_id" value="$(arg frame_id)"/>
+    <param name="auto_sampling" type="bool" value="$(arg auto_sampling)"/>
+    <param name="configure_dest" type="bool" value="$(arg configure_dest)"/>
+    <param name="max_range" type="double" value="$(arg max_range)"/>
+  </node>
+
+  <node if="$(arg rviz)" pkg="rviz" type="rviz" name="rviz" respawn="false"
+        args="-d $(find mid360_agras_driver)/rviz/mid360.rviz"/>
+</launch>
