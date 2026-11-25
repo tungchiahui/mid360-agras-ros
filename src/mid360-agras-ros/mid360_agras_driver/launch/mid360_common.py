@@ -1,10 +1,7 @@
 from pathlib import Path
 
 import yaml
-from ament_index_python.packages import (
-    PackageNotFoundError,
-    get_package_share_directory,
-)
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, Shutdown
 from launch.substitutions import LaunchConfiguration
@@ -12,7 +9,6 @@ from launch_ros.actions import Node
 
 
 DRIVER = "mid360_agras_driver"
-BRIDGE = "mid360_agras_livox_compat"
 
 
 def parse_bool(value):
@@ -40,7 +36,7 @@ def resolve_topic(prefix, name):
     return f"/{name}"
 
 
-def build(default_xfer, default_rviz):
+def build(default_xfer, default_rviz, *, default_params_file=None, bridge_factory=None):
     share = Path(get_package_share_directory(DRIVER))
     native_config = share / "config" / "MID360_agras.yaml"
     overrides = {
@@ -49,6 +45,7 @@ def build(default_xfer, default_rviz):
         "cmd_port": int,
         "point_port": int,
         "imu_port": int,
+        "discover_sec": float,
         "fov_start": int,
         "fov_stop": int,
         "xfer_format": int,
@@ -98,14 +95,14 @@ def build(default_xfer, default_rviz):
             active_topics.append(pointcloud_topic)
         if use_bridge:
             active_topics.append(compat_topic)
-            try:
-                get_package_share_directory(BRIDGE)
-                get_package_share_directory("livox_ros_driver2")
-            except PackageNotFoundError as error:
+            if bridge_factory is None:
                 raise RuntimeError(
-                    f"Livox 兼容模式需要 {BRIDGE} 和 livox_ros_driver2 的 ROS2 消息接口。"
-                    f"独立运行可改用 params_file:={native_config}"
-                ) from error
+                    "Livox 兼容模式请使用 ros2 launch mid360_agras_livox_compat "
+                    "point_lio_compat_launch.py。"
+                    f"主驱动独立运行请使用 params_file:={native_config}"
+                )
+        elif bridge_factory is not None:
+            raise ValueError("兼容启动需要 custom_msg_type: livox 且 xfer_format 为 1 或 4")
         if len(set(active_topics)) != len(active_topics):
             raise ValueError("点云、IMU 和兼容模式的输入与输出需要不同的话题名")
 
@@ -123,16 +120,7 @@ def build(default_xfer, default_rviz):
             )
         ]
         if use_bridge:
-            actions.append(
-                Node(
-                    package=BRIDGE,
-                    executable="custom_msg_bridge",
-                    name=BRIDGE,
-                    output="screen",
-                    parameters=[{"input_topic": lidar_topic, "output_topic": compat_topic}],
-                    on_exit=[Shutdown(reason="Livox 消息转换节点已退出")],
-                )
-            )
+            actions.append(bridge_factory(lidar_topic, compat_topic))
         if show_rviz:
             actions.append(
                 Node(
@@ -151,7 +139,7 @@ def build(default_xfer, default_rviz):
 
     arguments = [
         DeclareLaunchArgument(
-            "params_file", default_value=str(share / "config" / "point_lio_compat.yaml"),
+            "params_file", default_value=str(default_params_file or native_config),
             description="Agras ROS2 参数配置文件",
         ),
         DeclareLaunchArgument("rviz", default_value="true" if default_rviz else "false"),

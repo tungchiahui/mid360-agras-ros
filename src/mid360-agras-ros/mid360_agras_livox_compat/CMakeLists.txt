@@ -24,4 +24,5 @@ target_link_libraries(custom_msg_bridge
   ${livox_typesupport}
 )
 install(TARGETS custom_msg_bridge DESTINATION lib/${PROJECT_NAME})
+install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
 ament_package()
