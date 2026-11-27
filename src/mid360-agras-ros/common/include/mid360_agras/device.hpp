@@ -29,6 +29,10 @@ struct ImuSample {
   float acc_z = 0.f;
 };
 
+enum class TimestampSource { Native, Host, Device };
+
+inline constexpr uint64_t kDefaultCloudPeriodNs = 50000000;
+
 struct Options {
   std::string lidar_ip = "192.168.1.10";
   std::string host_ip = "192.168.1.20";
@@ -45,6 +49,8 @@ struct Options {
   double max_range_m = 80.0;
   int line_num = kLineNumberMid360;
   double discover_sec = 1.0;
+  TimestampSource timestamp_source = TimestampSource::Native;
+  uint64_t cloud_period_ns = kDefaultCloudPeriodNs;
 };
 
 struct Stats {
@@ -59,6 +65,29 @@ struct Stats {
   uint64_t lost_imu_packets = 0;
 };
 
+struct ClockStats {
+  int time_type = -1;
+  uint64_t raw_timestamp_ns = 0;
+  uint64_t invalid = 0;
+  uint64_t out_of_order = 0;
+  uint64_t jumps = 0;
+};
+
+struct CompatibilityStats {
+  ClockStats point_clock;
+  ClockStats imu_clock;
+  bool clock_ready = false;
+  std::string clock_fault;
+  uint64_t dropped_timestamp_packets = 0;
+  uint64_t dropped_late_points = 0;
+  uint64_t dropped_cloud_points = 0;
+  uint64_t dropped_imu_samples = 0;
+  uint64_t invalid_imu_samples = 0;
+  uint64_t repeated_imu_samples = 0;
+  double peak_gyro = 0.0;
+  double peak_acceleration = 0.0;
+};
+
 class LidarSession {
  public:
   LidarSession();
@@ -69,8 +98,10 @@ class LidarSession {
   bool start(const Options& options, std::string& error);
   void stop();
   void takePoints(std::vector<CloudPoint>& points);
+  void takeFrames(std::vector<std::vector<CloudPoint>>& frames);
   void takeImu(std::vector<ImuSample>& samples);
   Stats stats() const;
+  CompatibilityStats compatibilityStats() const;
   std::string summary() const;
 
  private:

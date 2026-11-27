@@ -16,15 +16,25 @@ class CustomMsgBridge : public rclcpp::Node {
   CustomMsgBridge() : Node("mid360_agras_livox_compat") {
     const auto input_topic = declare_parameter<std::string>("input_topic", "/agras/livox/lidar");
     const auto output_topic = declare_parameter<std::string>("output_topic", "/livox/lidar");
+    const auto depth = declare_parameter<int64_t>("qos_depth", 0);
     const auto topics = get_node_topics_interface();
     if (topics->resolve_topic_name(input_topic) == topics->resolve_topic_name(output_topic)) {
       throw std::invalid_argument("input_topic and output_topic must be different");
     }
 
-    publisher_ = create_publisher<LivoxCloud>(output_topic, rclcpp::QoS(16));
+    if (depth != 0 && depth != 64 && depth != 256) {
+      throw std::invalid_argument("qos_depth must be 0, 64 or 256");
+    }
+    const rclcpp::QoS qos(depth == 0 ? 16 : static_cast<size_t>(depth));
+    publisher_ = create_publisher<LivoxCloud>(output_topic, qos);
+    const rclcpp::QoS input_qos = depth == 0 ? rclcpp::SensorDataQoS() : qos;
     subscription_ = create_subscription<AgrasCloud>(
-        input_topic, rclcpp::SensorDataQoS(),
+        input_topic, input_qos,
         [this](const AgrasCloud& source) { publish(source); });
+    if (depth != 0) {
+      RCLCPP_INFO(get_logger(), "Livox CustomMsg QoS: input=%zu output=%zu",
+                  subscription_->get_actual_qos().depth(), publisher_->get_actual_qos().depth());
+    }
   }
 
  private:

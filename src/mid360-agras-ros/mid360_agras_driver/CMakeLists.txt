@@ -12,6 +12,8 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rcl_interfaces REQUIRED)
+find_package(diagnostic_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
@@ -34,6 +36,8 @@ target_include_directories(${PROJECT_NAME}_node PRIVATE
 
 ament_target_dependencies(${PROJECT_NAME}_node
   rclcpp
+  rcl_interfaces
+  diagnostic_msgs
   sensor_msgs
   std_msgs
 )

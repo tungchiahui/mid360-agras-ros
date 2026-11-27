@@ -1,0 +1,10 @@
+/**:
+  ros__parameters:
+    # msg Launch 默认 xfer_format=1，rviz Launch 默认 xfer_format=0。
+    publish_freq: 20.0
+    multi_topic: 0
+    data_src: 0
+    output_data_type: 0
+    frame_id: "livox_frame"
+    imu_frame_id: "livox_frame"
+    timestamp_source: "host"

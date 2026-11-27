@@ -1,4 +1,5 @@
 #include "mid360_agras/device.hpp"
+#include "mid360_agras/compatibility_stream.hpp"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -179,8 +180,8 @@ struct LidarSession::Impl {
   std::mutex mutex;
   std::deque<CloudPoint> points;
   std::deque<ImuSample> imu;
+  CompatibilityStream compatibility;
   static constexpr size_t kPointCap = 250000;
-  static constexpr size_t kImuCap = 4000;
 
   std::atomic<uint64_t> point_packets{0};
   std::atomic<uint64_t> imu_packets{0};
@@ -611,12 +612,27 @@ struct LidarSession::Impl {
     have = true;
   }
 
-  void handleDatagram(const uint8_t* data, size_t size) {
+  void handleDatagram(const uint8_t* data, size_t size, uint64_t host_ns, Clock::time_point received) {
     const DataPacket packet = parseDataPacket(data, size);
     if (!packet.ok) {
       return;
     }
-    const uint64_t base = packetTimeNs(packet);
+    const bool compatible = options.timestamp_source != TimestampSource::Native;
+    const bool dual = packet.data_type == 0x11;
+    const uint32_t interval = packet.dot_num == 0 ? 0 : static_cast<uint32_t>(packet.time_interval) * 100u / packet.dot_num;
+    const uint64_t span = packet.points.empty() ? 0 :
+        (packet.points.size() - 1) / (dual ? 2 : 1) * static_cast<uint64_t>(interval);
+    uint64_t base = 0;
+    if (compatible) {
+      std::lock_guard<std::mutex> lock(mutex);
+      base = compatibility.packetTime(packet, host_ns, received, span);
+      if (!compatibility.stats.clock_fault.empty()) {
+        compatibility.stats.dropped_imu_samples += imu.size();
+        imu.clear();
+      }
+    } else {
+      base = packetTimeNs(packet);
+    }
     if (packet.has_imu) {
       noteLoss(packet.udp_cnt, last_imu_udp, have_imu_udp, lost_imu_packets);
       ++imu_packets;
@@ -633,8 +649,17 @@ struct LidarSession::Impl {
       sample.acc_y = packet.imu.acc[1];
       sample.acc_z = packet.imu.acc[2];
       std::lock_guard<std::mutex> lock(mutex);
-      if (imu.size() >= kImuCap) {
+      if (compatible) {
+        const bool finite = compatibility.acceptImu(sample);
+        if (!finite || base == 0) {
+          return;
+        }
+      }
+      if (imu.size() >= CompatibilityStream::kImuCapacity) {
         imu.pop_front();
+        if (compatible) {
+          ++compatibility.stats.dropped_imu_samples;
+        }
       }
       imu.push_back(sample);
       return;
@@ -647,8 +672,9 @@ struct LidarSession::Impl {
       logLine("点云首包 " + std::to_string(size) + " B，类型 " + std::to_string(packet.data_type) + "，点数 " +
               std::to_string(packet.points.size()));
     }
-    const uint32_t interval = packet.dot_num == 0 ? 0 : static_cast<uint32_t>(packet.time_interval) * 100u / packet.dot_num;
-    const bool dual = packet.data_type == 0x11;
+    if (compatible && base == 0) {
+      return;
+    }
     const double max_range = options.max_range_m;
     std::vector<CloudPoint> accepted;
     accepted.reserve(packet.points.size());
@@ -680,10 +706,15 @@ struct LidarSession::Impl {
       }
       accepted.push_back(point);
     }
-    if (accepted.empty()) {
+    if (accepted.empty() && !compatible) {
       return;
     }
     std::lock_guard<std::mutex> lock(mutex);
+    if (compatible) {
+      points_kept += accepted.size();
+      compatibility.addPoints(accepted, base + span, received);
+      return;
+    }
     for (const CloudPoint& point : accepted) {
       if (points.size() >= kPointCap) {
         points.pop_front();
@@ -713,7 +744,12 @@ struct LidarSession::Impl {
         }
         continue;
       }
-      handleDatagram(buffer, static_cast<size_t>(got));
+      if (options.timestamp_source == TimestampSource::Native) {
+        handleDatagram(buffer, static_cast<size_t>(got), 0, {});
+      } else {
+        const auto received = Clock::now();
+        handleDatagram(buffer, static_cast<size_t>(got), unixNowNs(), received);
+      }
     }
   }
 
@@ -803,6 +839,12 @@ bool LidarSession::start(const Options& options, std::string& error) {
           "，雷达 " + impl_->options.lidar_ip + ":" + std::to_string(impl_->options.cmd_port));
 
   impl_->resetCounters();
+  {
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    impl_->points.clear();
+    impl_->imu.clear();
+    impl_->compatibility = CompatibilityStream(options.timestamp_source, options.cloud_period_ns);
+  }
   impl_->running.store(true);
   impl_->thread = std::thread([this]() { impl_->loop(); });
   impl_->discover();
@@ -841,6 +883,16 @@ void LidarSession::takeImu(std::vector<ImuSample>& samples) {
   std::lock_guard<std::mutex> lock(impl_->mutex);
   samples.assign(impl_->imu.begin(), impl_->imu.end());
   impl_->imu.clear();
+}
+
+void LidarSession::takeFrames(std::vector<std::vector<CloudPoint>>& frames) {
+  std::lock_guard<std::mutex> lock(impl_->mutex);
+  impl_->compatibility.takeFrames(frames);
+}
+
+CompatibilityStats LidarSession::compatibilityStats() const {
+  std::lock_guard<std::mutex> lock(impl_->mutex);
+  return impl_->compatibility.stats;
 }
 
 Stats LidarSession::stats() const {

@@ -1,4 +1,5 @@
 #include "mid360_agras/device.hpp"
+#include "mid360_agras/compatibility_stream.hpp"
 #include "mid360_agras/pack.hpp"
 
 #include <cmath>
@@ -53,6 +54,64 @@ void putF32(std::vector<uint8_t>& data, size_t offset, float value) {
   uint32_t word = 0;
   std::memcpy(&word, &value, sizeof(word));
   putLe32(data, offset, word);
+}
+
+void testCompatibilityStream() {
+  using namespace mid360_agras;
+  using namespace std::chrono_literals;
+  constexpr uint64_t epoch = 1700000000000000000;
+  const auto received = CompatibilityStream::Clock::time_point(1s);
+  CompatibilityStream host(TimestampSource::Host, 2000000000);
+  DataPacket packet;
+  packet.timestamp = 42;
+  expect(host.packetTime(packet, epoch, received, 0) == epoch && host.stats.point_clock.invalid == 1,
+         "host timestamps expose unused device time");
+  CloudPoint point;
+  point.time_ns = epoch;
+  CloudPoint last_in_packet;
+  last_in_packet.time_ns = epoch + 50000;
+  host.addPoints({point, last_in_packet}, last_in_packet.time_ns, received);
+  std::vector<std::vector<CloudPoint>> frames;
+  host.takeFrames(frames);
+  expect(frames.empty(), "first packet does not prematurely close the 0.5 Hz frame");
+  point.time_ns = epoch + 10000;
+  host.addPoints({point}, point.time_ns, received + 1s);
+  point.time_ns = epoch + 2000000000;
+  host.addPoints({point}, point.time_ns, received + 2s);
+  host.takeFrames(frames);
+  expect(frames.size() == 1 && frames.front().size() == 4 &&
+         frames.front()[1].time_ns == epoch + 10000, "host frame orders overlapping packet timestamps");
+  if (frames.size() == 1 && frames.front().size() == 4) {
+    std::vector<CustomPointRaw> custom;
+    std::vector<LivoxPointXyzrtlt> cloud;
+    expect(packCustomPoints(frames.front(), custom) == packLivoxPoints(frames.front(), cloud) &&
+           custom.back().offset_time == 2000000000 &&
+           cloud.back().timestamp == static_cast<double>(epoch + custom.back().offset_time),
+           "both representations share the same integer time source");
+  }
+
+  CompatibilityStream device(TimestampSource::Device, 100000000);
+  packet.time_type = 1;
+  packet.timestamp = epoch;
+  expect(device.packetTime(packet, epoch, received, 0) == 0, "device waits for both streams");
+  packet.has_imu = true;
+  device.packetTime(packet, epoch, received, 0);
+  packet.has_imu = false;
+  packet.timestamp += 10000000;
+  device.packetTime(packet, epoch + 10000000, received + 10ms, 0);
+  packet.has_imu = true;
+  expect(device.packetTime(packet, epoch + 10000000, received + 10ms, 0) == epoch + 10000000,
+         "device time starts when both streams are coherent");
+  packet.has_imu = false;
+  packet.timestamp = epoch + 9000000;
+  expect(device.packetTime(packet, epoch + 11000000, received + 11ms, 0) == 0 &&
+         device.stats.point_clock.out_of_order == 1 && device.stats.clock_ready, "small reordering drops a packet");
+  packet.timestamp = epoch + 20000000;
+  expect(device.packetTime(packet, epoch + 20000000, received + 20ms, 0) == epoch + 20000000,
+         "valid time recovers after a reordered packet");
+  packet.timestamp = epoch + 3000000000;
+  expect(device.packetTime(packet, epoch + 30000000, received + 30ms, 0) == 0 &&
+         !device.stats.clock_fault.empty(), "large device clock jump stops the session");
 }
 
 }  // namespace
@@ -150,6 +209,7 @@ int main() {
 
   LidarSession session;
   expect(session.summary() == "未连接", "session starts idle");
+  testCompatibilityStream();
 
   if (failures != 0) {
     std::cerr << failures << " failed\n";

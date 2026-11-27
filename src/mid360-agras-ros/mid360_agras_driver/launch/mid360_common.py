@@ -36,7 +36,31 @@ def resolve_topic(prefix, name):
     return f"/{name}"
 
 
-def build(default_xfer, default_rviz, *, default_params_file=None, bridge_factory=None):
+def driver_node(params, namespace=None):
+    return Node(
+        package=DRIVER,
+        executable="mid360_agras_driver_node",
+        name=DRIVER,
+        namespace=namespace,
+        output="screen",
+        parameters=[params],
+        on_exit=[Shutdown(reason="Agras 驱动已退出")],
+    )
+
+
+def rviz_node(config, frame, topic, namespace=None):
+    return Node(
+        package="rviz2",
+        executable="rviz2",
+        name="rviz2",
+        namespace=namespace,
+        output="screen",
+        arguments=["-d", str(config), "-f", frame],
+        remappings=[("/livox/lidar", topic)],
+    )
+
+
+def build(default_xfer, default_rviz):
     share = Path(get_package_share_directory(DRIVER))
     native_config = share / "config" / "MID360_agras.yaml"
     overrides = {
@@ -77,69 +101,39 @@ def build(default_xfer, default_rviz, *, default_params_file=None, bridge_factor
             raise ValueError("RViz 需要 PointCloud2，使用 xfer_format:=0 或 4")
 
         custom_type = params.pop("custom_msg_type", "agras")
-        if custom_type not in ("agras", "livox"):
-            raise ValueError("custom_msg_type 必须是 agras 或 livox")
+        if custom_type == "livox":
+            raise ValueError(
+                "Livox 兼容模式请使用 ros2 launch mid360_agras_livox_compat msg_MID360_launch.py"
+            )
+        if custom_type != "agras":
+            raise ValueError("原生模式的 custom_msg_type 必须是 agras")
         prefix = params.pop("topic_prefix", "").strip("/")
         raw_topic = params.get("lidar_topic", "livox/lidar")
         pointcloud_default = raw_topic + "/pointcloud" if xfer_format == 4 else raw_topic
         pointcloud_topic = resolve_topic(prefix, params.get("pointcloud_topic") or pointcloud_default)
         lidar_topic = resolve_topic(prefix, raw_topic)
         imu_topic = resolve_topic(prefix, params.get("imu_topic", "livox/imu"))
-        compat_topic = resolve_topic(prefix, params.pop("livox_compat_topic", "/livox/lidar"))
-        use_bridge = custom_type == "livox" and xfer_format in (1, 4)
-
         active_topics = [imu_topic]
         if xfer_format in (1, 4):
             active_topics.append(lidar_topic)
         if xfer_format in (0, 4):
             active_topics.append(pointcloud_topic)
-        if use_bridge:
-            active_topics.append(compat_topic)
-            if bridge_factory is None:
-                raise RuntimeError(
-                    "Livox 兼容模式请使用 ros2 launch mid360_agras_livox_compat "
-                    "point_lio_compat_launch.py。"
-                    f"主驱动独立运行请使用 params_file:={native_config}"
-                )
-        elif bridge_factory is not None:
-            raise ValueError("兼容启动需要 custom_msg_type: livox 且 xfer_format 为 1 或 4")
         if len(set(active_topics)) != len(active_topics):
-            raise ValueError("点云、IMU 和兼容模式的输入与输出需要不同的话题名")
+            raise ValueError("启用的点云和 IMU 输出需要不同的话题名")
 
         params.update(
             lidar_topic=lidar_topic, pointcloud_topic=pointcloud_topic, imu_topic=imu_topic
         )
-        actions = [
-            Node(
-                package=DRIVER,
-                executable="mid360_agras_driver_node",
-                name=DRIVER,
-                output="screen",
-                parameters=[params],
-                on_exit=[Shutdown(reason="Agras 驱动已退出")],
-            )
-        ]
-        if use_bridge:
-            actions.append(bridge_factory(lidar_topic, compat_topic))
+        actions = [driver_node(params)]
         if show_rviz:
-            actions.append(
-                Node(
-                    package="rviz2",
-                    executable="rviz2",
-                    name="rviz2",
-                    output="screen",
-                    arguments=[
-                        "-d", str(share / "rviz" / "mid360.rviz"),
-                        "-f", params.get("frame_id", "livox_frame"),
-                    ],
-                    remappings=[("/livox/lidar", pointcloud_topic)],
-                )
-            )
+            actions.append(rviz_node(
+                share / "rviz" / "mid360.rviz", params.get("frame_id", "livox_frame"), pointcloud_topic
+            ))
         return actions
 
     arguments = [
         DeclareLaunchArgument(
-            "params_file", default_value=str(default_params_file or native_config),
+            "params_file", default_value=str(native_config),
             description="Agras ROS2 参数配置文件",
         ),
         DeclareLaunchArgument("rviz", default_value="true" if default_rviz else "false"),

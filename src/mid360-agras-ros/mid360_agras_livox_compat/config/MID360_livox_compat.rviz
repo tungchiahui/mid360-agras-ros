@@ -1,0 +1,18 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Global Options:
+    Fixed Frame: livox_frame
+  Displays:
+    - Class: rviz_default_plugins/PointCloud2
+      Name: MID360
+      Enabled: true
+      Topic:
+        Value: /livox/lidar
+        Reliability Policy: Reliable
+      Style: Points
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 15
